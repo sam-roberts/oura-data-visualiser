@@ -5,5 +5,5 @@
     "db-username": "postgres",
     "db-tablename": "sleep_sessions",
     "oura-token": "your token goes here see https://cloud.ouraring.com/personal-access-tokens",
-    "oura-from-date": "must specify a start date for your data"
+    "oura-from-date": "must specify a start date for your data IN THE FORMAT YYYY-MM-YY e.g. 2023-01-01"
 }
