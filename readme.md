@@ -1,6 +1,8 @@
 # Oura data visualiser
 
 This is a Python project that allows you to pull your data from the Oura API using a personal access token, save it to a local PostgreSQL database, then use tools like Grafana to revisualise it.
+![Example of visualising your sleep data with this tool](https://i.imgur.com/743EON0.jpeg)
+
 
 ## Limitations and warnings
 
