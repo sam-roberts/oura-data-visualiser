@@ -104,7 +104,7 @@ Create a new Visualization on your main Grafana dashboard. Set the data source t
 Under the 'code' query builder, you can now pull out the fields you need.
 
     ```
-SELECT score as "Sleep Score", date FROM sleep_sessions WHERE $__timeFilter(date)
+    SELECT score as "Sleep Score", date FROM sleep_sessions WHERE $__timeFilter(date)
     ```
 
 ## Usage
