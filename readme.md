@@ -15,19 +15,39 @@ This tool was created for PERSONAL USE and such is not intended as a production-
 - Python 3.x: The project requires Python 3.x to be installed. If Python is not installed, you can download it from the official Python website: <https://www.python.org/downloads/>
 - PostGreSQL: The project attempts to connect to a Postgres database to store its data. <https://www.postgresql.org/download/>
 
-### Clone the Repository
+### Install Postgres (linux)
+Installing Postgres is recommended first.
+For proper documentation, follow instructions for your platform at: <https://www.postgresql.org/download/> (or consider using something like brew on macOS)
+or
+General instructions:
 
-1. Open a terminal.
-2. Change to the directory where you want to clone the repository.
-3. Run the following command to clone the repository:
+1. Update your package list and install postgres
 
     ```bash
-    git clone https://github.com/sam-roberts/Oura-data-visualiser.git
+    sudo apt update && sudo apt install postgresql
     ```
 
+2. Switch to the postgres user using
+
+    ```bash
+    sudo -i -u postgres
+    ```
+
+3. Access the PostgreSQL terminal by running:
+
+    ```bash
+    psql
+    ```
+
+4. Create the database you will use to host the data  (by default this tool calls it 'sleepdb')
+
+    ```sql
+    CREATE DATABASE sleepdb;
+    ```
+    
 ### Set up a Virtual Environment (Optional)
 
-Setting up a virtual environment is recommended to keep the project dependencies isolated. Follow these steps to set up a virtual environment:
+Setting up a virtual environment is recommended to keep the project dependencies isolated. Follow these steps to set up a virtual environment. Note on MacOS you may need to follow some of the steps described in https://stackoverflow.com/questions/34304833/failed-building-wheel-for-psycopg2-macosx-using-virtualenv-and-pip 
 
 1. Change to the project directory:
 
@@ -56,35 +76,7 @@ Setting up a virtual environment is recommended to keep the project dependencies
     pip install -r requirements.txt
     ```
 
-### Install Postgres (linux)
 
-For proper documentation, follow instructions for your platform at: <https://www.postgresql.org/download/>
-or
-General instructions:
-
-1. Update your package list and install postgres
-
-    ```bash
-    sudo apt update && sudo apt install postgresql
-    ```
-
-2. Switch to the postgres user using
-
-    ```bash
-    sudo -i -u postgres
-    ```
-
-3. Access the PostgreSQL terminal by running:
-
-    ```bash
-    psql
-    ```
-
-4. Create the database you will use to host the data  (by default this tool calls it 'sleepdb')
-
-    ```sql
-    CREATE DATABASE sleepdb;
-    ```
 
 ### Configuration
 
@@ -142,3 +134,6 @@ You can use a tool like cron to run the script every day.
 - Add installation shell script to speed up installation.
 - Look at Docker container version of tool.
 - Pull in more information from Oura. At the moment only sleep data is pulled.
+
+## Known issues
+- checkConfig() fails if no password is set, which is a valid configuration on postgres. 
