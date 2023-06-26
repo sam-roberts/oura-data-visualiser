@@ -2,6 +2,7 @@ import requests
 from datetime import date, timedelta,datetime
 import psycopg2
 import json
+import os
 
 debug_mode = False
 github_mode = True
@@ -20,10 +21,13 @@ sleepTableFields= """
         """
 
 def loadConfig():
-    path='sleep-data-config.json'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    relative_path = "sleep-data-config.json"
     if github_mode is False:
-        path='sleep-data-config-private.json'
-    with open(path) as config_file:
+        relative_path='sleep-data-config-private.json'
+    config_path = os.path.join(script_dir, relative_path)
+
+    with open(config_path) as config_file:
         config = json.load(config_file)
     return config
 
