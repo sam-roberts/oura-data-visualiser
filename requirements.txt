@@ -1,2 +1,2 @@
-psycopg2==2.8.6
+psycopg2-binary==2.9.6
 Requests==2.31.0
