@@ -33,7 +33,7 @@ def loadConfig(filepath: str) -> dict:
     return config
 
 
-def generateConfigVariables(configJson) -> dict:
+def generateConfigVariables(configJson: dict) -> dict:
     return {
         "DBHOST": configJson.get("db-host"),
         "DBNAME": configJson.get("db-dbname"),
@@ -46,19 +46,19 @@ def generateConfigVariables(configJson) -> dict:
     }
 
 
-def getSleepDataFromOura(API_URl, PERSONAL_TOKEN, fromDate, toDate):
+def getSleepDataFromOura(API_URl: str, PERSONAL_TOKEN: str, fromDate: str, toDate: str):
     # Optional: Define headers or authentication tokens if required by the API
     headers = {
         "Authorization": f"Bearer {PERSONAL_TOKEN}",
         "Content-Type": "application/json"
     }
-    params = {
+    myParams = {
         "start_date": fromDate,
         "end_date": toDate
     }
 
     try:
-        response = requests.get(API_URl, headers=headers, params=params)
+        response = requests.get(API_URl, headers=headers, params=myParams)
 
         # Check the response status code
         if response.status_code == HTTPStatus.OK:
@@ -205,6 +205,7 @@ def createDbTable(connection, dbtable, dbfields):
 
 
 def main():
+    # Setup
     configJson = loadConfig(CONFIG_RELATIVE_PATH)
     if not checkConfig(configJson):
         print("Configuration file is missing a value, check file and try again. Exiting")
@@ -212,12 +213,14 @@ def main():
     config = generateConfigVariables(configJson)
     print("...Loaded config successfully")
 
+    # Fetch data
     todayDate = date.today().strftime("%Y-%m-%d")
     sleepData = getSleepDataFromOura(config['OURA_SLEEP_API_URL'],
                                      config['OURA_PERSONAL_TOKEN'],
                                      config['OURA_FROM_DATE'],
                                      todayDate)
 
+    # Connect to DB
     connection = createDbConnection(config['DBHOST'],
                                     config['DBNAME'],
                                     config['DBUSERNAME'],
@@ -227,6 +230,7 @@ def main():
         return
     print(f"...Successfully connected to database: (host={config['DBHOST']}, user={config['DBUSERNAME']})")
 
+    # Set up table in DB if needed
     hasTable = checkTableExists(connection, config['DBTABLENAME'])
     if hasTable is False:
         print("...Table", config['DBTABLENAME'], "doesn't exist. Attempting to create...")
@@ -237,7 +241,11 @@ def main():
             print("Unable to create table", config['DBTABLENAME'], ". Exiting")
             return
     print(f"...Applying Oura data to database (name={config['DBNAME']}, table={config['DBTABLENAME']})")
+
+    # Put API data to DB
     populateDbSleep(sleepData, connection, config['DBTABLENAME'], config['OURA_FROM_DATE'], todayDate)
+
+    # Close the connection and wrap up
     connection.close()
 
 
