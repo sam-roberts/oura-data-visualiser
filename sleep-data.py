@@ -12,9 +12,10 @@ import requests
 
 
 debug_mode = False
-
+fresh_setup = True
 # You can point to a different config file if you like
 CONFIG_RELATIVE_PATH = "sleep-data-config-private.json"
+
 
 
 sleepTableFields = """
@@ -105,14 +106,12 @@ def checkConfig(config) -> bool:
 
 def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
     # support multiple sets of data on a day
-    daysData = []
-    for day in sleepData:
-        if str(day["day"]) == str(compareDate):
-            daysData.append(day)
-    return daysData
+    results = [item for item in sleepData if item["day"] == str(compareDate)]
+    return results
 
 
 def getSleepDataSum(additionalDayData):
+    # pprint.pprint(additionalDayData)
     combinedData = {
         "total_sleep_duration": 0,
         "rem_sleep_duration": 0,
@@ -125,6 +124,7 @@ def getSleepDataSum(additionalDayData):
         combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
         combinedData["time_in_bed"] += item["time_in_bed"]
         combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
+    
     return combinedData
 
 
@@ -236,7 +236,11 @@ def createDbTable(connection, dbtable, dbfields):
         cursor.close()
         return False
 
-
+def dropTable(connection, tableName) -> None:
+    cursor = connection.cursor()
+    cursor.execute(f"DROP TABLE {tableName}")
+    cursor.close()
+    
 def main():
     # Setup
     configJson = loadConfig(CONFIG_RELATIVE_PATH)
@@ -273,6 +277,10 @@ def main():
         return
     print(f"...Successfully connected to database: (host={config['DBHOST']}, user={config['DBUSERNAME']})")
 
+    # Clear the table
+    if fresh_setup:
+        dropTable(connection, config['DBTABLENAME'])
+        print("...Deleting table [start fresh is true]")
     # Set up table in DB if needed
     hasTable = checkTableExists(connection, config['DBTABLENAME'])
     if hasTable is False:
