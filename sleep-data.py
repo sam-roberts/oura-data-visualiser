@@ -10,13 +10,6 @@ import psycopg2
 import requests
 
 
-debug_mode = True
-fresh_setup = True
-# You can point to a different config file if you like
-CONFIG_RELATIVE_PATH = "sleep-data-config-private.json"
-INCLUDE_NAPS = False
-
-
 sleepTableFields = """
         date DATE PRIMARY KEY,
         score INT,
@@ -84,7 +77,7 @@ def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
     results = [item for item in sleepData if item["day"] == str(compareDate)]
     return results
 
-def getSleepDataSum(additionalDayData):
+def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
     # pprint.pprint(additionalDayData)
     combinedData = {
         "total_sleep_duration": 0,
@@ -94,61 +87,68 @@ def getSleepDataSum(additionalDayData):
     }
 
     for item in additionalDayData:
-        if INCLUDE_NAPS:
+        if config['user'].getboolean('include_naps'):
             combinedData["total_sleep_duration"] += item["total_sleep_duration"]
             combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
             combinedData["time_in_bed"] += item["time_in_bed"]
             combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
         else:
             if item["type"] == "long_sleep":
-                combinedData["total_sleep_duration"] += item["total_sleep_duration"]
-                combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
-                combinedData["time_in_bed"] += item["time_in_bed"]
-                combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
+                combinedData["total_sleep_duration"] = item["total_sleep_duration"]
+                combinedData["rem_sleep_duration"] = item["rem_sleep_duration"]
+                combinedData["time_in_bed"] = item["time_in_bed"]
+                combinedData["deep_sleep_duration"] = item["deep_sleep_duration"]
     
     return combinedData
 
 
-def populateDbSleep(sleepData, moreSleepData, connection, dbtable, fromDate, toDate) -> None:
+def populateDbSleep(sleepData, moreSleepData, connection, toDate, config: configparser.ConfigParser) -> None:
     # Create a cursor object to interact with the database
     cursor = connection.cursor()
 
-    if debug_mode is True:
+    if config['dev'].getboolean('debug_mode') is True:
         # Get column headings
-        cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (dbtable,))
+        cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (config['db']['tablename'],))
         columnHeadings = cursor.fetchall()
-        print(f"Columns in {dbtable}:")
+        print(f"Columns in {config['db']['tablename']}:")
         pprint.pprint(columnHeadings)
+        # Print the database names
+        for heading in columnHeadings:
+            print(heading[0], end=", ")
         print(f"{len(columnHeadings)} columns total")
 
     # Find the range of dates to loop over
     dateFormat = "%Y-%m-%d"
-    firstDate = datetime.strptime(fromDate, dateFormat).date()
+    firstDate = datetime.strptime(config['user']['start_date'], dateFormat).date()
     lastDate = datetime.strptime(toDate, dateFormat).date()
     dateDelta = (lastDate - firstDate).days
 
     # List of all the days between the range
     allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
-    if debug_mode:
-        print("first day:", firstDate, "last day", lastDate)
+    if config['dev'].getboolean('debug_mode'):
+        print("First day:", firstDate, "last day", lastDate)
         print("There should be ", len(allDays), "of data")
 
     print("......Filling any missing days of data")
 
-    # Loop over all the days, and if there's no data for taaaaahat day, just fill it with zeroes
+    # Loop over all the days, and if there's no data for that day, just fill it with zeroes
     successCount = 0
     missingDays = 0
     for calendarDay in allDays:
+        # Grab the data from our API response for that particular day
         dayData = getSleepDataOnDate(sleepData, calendarDay)
         additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
-        if len(additionalDayData) > 1 and debug_mode:
+
+        # Days can have multiple sleep sessions (e.g. naps), so we need to deal with those
+        if len(additionalDayData) > 1 and config['dev'].getboolean('debug_mode'):
             print(calendarDay, "had", len(additionalDayData), "sleep sessions")
-        aggregateDayData = getSleepDataSum(additionalDayData)
+        aggregateDayData = getSleepDataSum(additionalDayData, config)
 
         # assume no value
         values = (calendarDay.isoformat(), "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0")
 
         # if we do have data then get correct values
+        # We can assume the first elmenet of DayData because length should only be 1
         if len(dayData) > 0 and additionalDayData is not None:
             values = (
                 str(dayData[0].get("day")),
@@ -170,7 +170,7 @@ def populateDbSleep(sleepData, moreSleepData, connection, dbtable, fromDate, toD
             missingDays += 1
 
         # Loop over the values and construct the INSERT statement
-        query = f"INSERT INTO {dbtable} VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
+        query = f"INSERT INTO {config['db']['tablename']} VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
 
         try:
             cursor.execute(query, (values))
@@ -220,8 +220,8 @@ def dropTable(connection, tableName) -> None:
     cursor.execute(f"DROP TABLE {tableName}")
     cursor.close()
 
-def setupDb(connection, config):
-    if fresh_setup:
+def setupDb(connection, config: configparser.ConfigParser):
+    if config['dev'].getboolean('clear_tables'):
         dropTable(connection, config['db']['tablename'])
         print("...Deleting table [start fresh is true]")
     # Set up table in DB if needed
@@ -276,7 +276,7 @@ def main():
     setupDb(connection, config)
 
     # Put API data to DB
-    populateDbSleep(sleepData, moreSleepData, connection, config['db']['tablename'], config['user']['start_date'], todayDate)
+    populateDbSleep(sleepData, moreSleepData, connection, todayDate, config)
 
     # Close the connection and wrap up
     connection.close()
