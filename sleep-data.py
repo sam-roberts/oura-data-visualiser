@@ -10,7 +10,7 @@ import psycopg2
 import requests
 
 
-debug_mode = False
+debug_mode = True
 fresh_setup = True
 # You can point to a different config file if you like
 CONFIG_RELATIVE_PATH = "sleep-data-config-private.json"
@@ -118,9 +118,7 @@ def populateDbSleep(sleepData, moreSleepData, connection, dbtable, fromDate, toD
         cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (dbtable,))
         columnHeadings = cursor.fetchall()
         print(f"Columns in {dbtable}:")
-        # Print the database names
-        for heading in columnHeadings:
-            print(heading[0], end=", ")
+        pprint.pprint(columnHeadings)
         print(f"{len(columnHeadings)} columns total")
 
     # Find the range of dates to loop over
