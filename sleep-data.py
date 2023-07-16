@@ -15,7 +15,7 @@ debug_mode = False
 fresh_setup = True
 # You can point to a different config file if you like
 CONFIG_RELATIVE_PATH = "sleep-data-config-private.json"
-
+INCLUDE_NAPS = False
 
 
 sleepTableFields = """
@@ -109,21 +109,27 @@ def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
     results = [item for item in sleepData if item["day"] == str(compareDate)]
     return results
 
-
 def getSleepDataSum(additionalDayData):
     # pprint.pprint(additionalDayData)
     combinedData = {
         "total_sleep_duration": 0,
         "rem_sleep_duration": 0,
         "time_in_bed": 0,
-        "deep_sleep_duration": 0
+        "deep_sleep_duration": 0,
     }
 
     for item in additionalDayData:
-        combinedData["total_sleep_duration"] += item["total_sleep_duration"]
-        combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
-        combinedData["time_in_bed"] += item["time_in_bed"]
-        combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
+        if INCLUDE_NAPS:
+            combinedData["total_sleep_duration"] += item["total_sleep_duration"]
+            combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
+            combinedData["time_in_bed"] += item["time_in_bed"]
+            combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
+        else:
+            if item["type"] == "long_sleep":
+                combinedData["total_sleep_duration"] += item["total_sleep_duration"]
+                combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
+                combinedData["time_in_bed"] += item["time_in_bed"]
+                combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
     
     return combinedData
 
