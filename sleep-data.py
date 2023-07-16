@@ -5,6 +5,7 @@ import json
 import os
 from typing import Optional, Dict, List
 import pprint
+import configparser
 
 # third-party libraries
 import psycopg2
@@ -250,6 +251,8 @@ def dropTable(connection, tableName) -> None:
 def main():
     # Setup
     configJson = loadConfig(CONFIG_RELATIVE_PATH)
+    config = configparser.ConfigParser()
+    config.read('config.ini')
     if not checkConfig(configJson):
         print("Configuration file is missing a value, check file and try again. Exiting")
         return
