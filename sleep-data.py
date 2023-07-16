@@ -1,8 +1,6 @@
 # built-in libraries
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
-import json
-import os
 from typing import Optional, Dict, List
 import pprint
 import configparser
