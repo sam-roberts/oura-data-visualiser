@@ -131,19 +131,19 @@ def populateDbSleep(sleepData, moreSleepData, connection, dbtable, fromDate, toD
 
     # List of all the days between the range
     allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
-    if debug_mode is True:
+    if debug_mode:
         print("first day:", firstDate, "last day", lastDate)
         print("There should be ", len(allDays), "of data")
 
     print("......Filling any missing days of data")
 
-    # Loop over all the days, and if there's no data for that day, just fill it with zeroes
+    # Loop over all the days, and if there's no data for taaaaahat day, just fill it with zeroes
     successCount = 0
     missingDays = 0
     for calendarDay in allDays:
         dayData = getSleepDataOnDate(sleepData, calendarDay)
         additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
-        if len(additionalDayData) > 1:
+        if len(additionalDayData) > 1 and debug_mode:
             print(calendarDay, "had", len(additionalDayData), "sleep sessions")
         aggregateDayData = getSleepDataSum(additionalDayData)
 
@@ -221,9 +221,26 @@ def dropTable(connection, tableName) -> None:
     cursor = connection.cursor()
     cursor.execute(f"DROP TABLE {tableName}")
     cursor.close()
-    
+
+def setupDb(connection, config):
+    if fresh_setup:
+        dropTable(connection, config['db']['tablename'])
+        print("...Deleting table [start fresh is true]")
+    # Set up table in DB if needed
+    hasTable = checkTableExists(connection, config['db']['tablename'])
+    if hasTable is False:
+        print("...Table", config['db']['tablename'], "doesn't exist. Attempting to create...")
+        isCreateSuccessful = createDbTable(connection,
+                                           config['db']['tablename'],
+                                           sleepTableFields)
+        if isCreateSuccessful is False:
+            print("Unable to create table", config['db']['tablename'], ". Exiting")
+            return
+
+    print(f"...Applying Oura data to database (name={config['db']['dbname']}, table={config['db']['tablename']})")
+
 def main():
-    # Setup
+    # Setup configuration file
     config = configparser.ConfigParser()
     config.read('config.ini')
     if not checkConfig(config):
@@ -243,7 +260,7 @@ def main():
     sleepData = getResponseFromAPI(config['oura']['sleep_api_url'], config['user']['personal_token'], myParams)
     sleepData = sleepData.get("data")
 
-    # Get additional sleep data
+    # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
     moreSleepData = getResponseFromAPI(config['oura']['sleep_routes_api_url'], config['user']['personal_token'], myParams)
     moreSleepData = moreSleepData.get("data")
 
@@ -258,21 +275,7 @@ def main():
     print(f"...Successfully connected to database: (host={config['db']['host']}, user={config['db']['username']})")
 
     # Clear the table
-    if fresh_setup:
-        dropTable(connection, config['db']['tablename'])
-        print("...Deleting table [start fresh is true]")
-    # Set up table in DB if needed
-    hasTable = checkTableExists(connection, config['db']['tablename'])
-    if hasTable is False:
-        print("...Table", config['db']['tablename'], "doesn't exist. Attempting to create...")
-        isCreateSuccessful = createDbTable(connection,
-                                           config['db']['tablename'],
-                                           sleepTableFields)
-        if isCreateSuccessful is False:
-            print("Unable to create table", config['db']['tablename'], ". Exiting")
-            return
-
-    print(f"...Applying Oura data to database (name={config['db']['dbname']}, table={config['db']['tablename']})")
+    setupDb(connection, config)
 
     # Put API data to DB
     populateDbSleep(sleepData, moreSleepData, connection, config['db']['tablename'], config['user']['start_date'], todayDate)
