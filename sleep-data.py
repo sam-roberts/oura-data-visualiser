@@ -8,6 +8,7 @@ import configparser
 # third-party libraries
 import psycopg2
 import requests
+import sqlalchemy
 
 
 sleepTableFields = """
