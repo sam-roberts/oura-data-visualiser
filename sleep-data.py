@@ -182,8 +182,8 @@ def getTable(config, meta):
 
 def main():
     # Setup configuration file
-    config = configparser.ConfigParser().read("config.ini")
-
+    config = configparser.ConfigParser()
+    config.read("config.ini")
     if not checkConfig(config):
         print("Configuration file is invalid, check file and try again. Exiting")
         return
