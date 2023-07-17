@@ -188,60 +188,6 @@ def populateDbSleep(sleepData, moreSleepData, connection, toDate, config: config
     print(f"...Successfully added (or ignored existing) {successCount} rows to database. ({missingDays}) day(s) of data was missing")
 
 
-def checkTableExists(connection, dbtable):
-    cursor = connection.cursor()
-    query = """
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_tables
-            WHERE tablename = %s
-        );
-    """
-    cursor.execute(query, (dbtable,))
-    result = cursor.fetchone()[0]
-    cursor.close()
-    return result
-
-
-def createDbTable(connection, dbtable, dbfields):
-    cursor = connection.cursor()
-    create_table_query = f"""
-    CREATE TABLE {dbtable} (
-        {dbfields}
-    );
-    """
-    try:
-        cursor.execute(create_table_query)
-        connection.commit()
-        cursor.close()
-        return True
-    except psycopg2.Error as e:
-        print(f"Error executing query: {e}")
-        cursor.close()
-        return False
-
-def dropTable(connection, tableName) -> None:
-    cursor = connection.cursor()
-    cursor.execute(f"DROP TABLE {tableName}")
-    cursor.close()
-
-def setupDb(connection, config: configparser.ConfigParser):
-    if config['dev'].getboolean('clear_tables'):
-        dropTable(connection, config['db']['tablename'])
-        print("...Deleting table [start fresh is true]")
-    # Set up table in DB if needed
-    hasTable = checkTableExists(connection, config['db']['tablename'])
-    if hasTable is False:
-        print("...Table", config['db']['tablename'], "doesn't exist. Attempting to create...")
-        isCreateSuccessful = createDbTable(connection,
-                                           config['db']['tablename'],
-                                           sleepTableFields)
-        if isCreateSuccessful is False:
-            print("Unable to create table", config['db']['tablename'], ". Exiting")
-            return
-
-    print(f"...Applying Oura data to database (name={config['db']['dbname']}, table={config['db']['tablename']})")
-
 def clearAndCreateTable(engine: Engine, meta: MetaData, table: Table, config):
     with engine.connect() as connection:
         # Check if the table already exists
@@ -271,9 +217,78 @@ def populateDb2(engine: Engine, meta: MetaData, tableSleep:Table, config: config
         time_in_bed=1234567,
         deep_sleep_duration=2928092
     )
+
+    # Find the range of dates to loop over
+    dateFormat = "%Y-%m-%d"
+    firstDate = datetime.strptime(config['user']['start_date'], dateFormat).date()
+    lastDate = datetime.strptime(todayDate, dateFormat).date()
+    dateDelta = (lastDate - firstDate).days
+
+    # List of all the days between the range
+    allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
+    if config['dev'].getboolean('debug_mode'):
+        print("First day:", firstDate, "last day", lastDate)
+        print("There should be ", len(allDays), "of data")
+
+    print("......Filling any missing days of data")
+
+    # Loop over all the days, and if there's no data for that day, just fill it with zeroes
+    successCount = 0
+    missingDays = 0
     with engine.connect() as connection:
-        print("Inserting data into table")
-        connection.execute(inStatment)
+        for calendarDay in allDays:
+            # Grab the data from our API response for that particular day
+            dayData = getSleepDataOnDate(sleepData, calendarDay)
+            additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
+
+            # Days can have multiple sleep sessions (e.g. naps), so we need to deal with those
+            if len(additionalDayData) > 1 and config['dev'].getboolean('debug_mode'):
+                print(calendarDay, "had", len(additionalDayData), "sleep sessions")
+            aggregateDayData = getSleepDataSum(additionalDayData, config)
+
+            # assume no value
+            values = (calendarDay.isoformat(), "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0")
+
+            # if we do have data then get correct values
+            # We can assume the first elmenet of DayData because length should only be 1
+            if len(dayData) > 0 and additionalDayData is not None:
+                inStatment = tableSleep.insert().values(
+                    date=dayData[0].get("day"),
+                    score=dayData[0]["score"],
+                    deep_sleep=dayData[0]["contributors"]["deep_sleep"],
+                    efficiency=dayData[0]["contributors"]["efficiency"],
+                    latency=dayData[0]["contributors"]["latency"],
+                    rem_sleep=dayData[0]["contributors"]["rem_sleep"],
+                    restfulness=dayData[0]["contributors"]["restfulness"],
+                    timing=dayData[0]["contributors"]["timing"],
+                    total_sleep=dayData[0]["contributors"]["total_sleep"],
+                    total_sleep_duration=aggregateDayData["total_sleep_duration"],
+                    rem_sleep_duration=aggregateDayData["rem_sleep_duration"],
+                    time_in_bed=aggregateDayData["time_in_bed"],
+                    deep_sleep_duration=aggregateDayData["deep_sleep_duration"]
+                )
+            else:
+                # Loop over the values and construct the INSERT statement
+                inStatment = tableSleep.insert().values(
+                    date=calendarDay.isoformat(),
+                    score=0,
+                    deep_sleep=0,
+                    efficiency=0,
+                    latency=0,
+                    rem_sleep=0,
+                    restfulness=0,
+                    timing=0,
+                    total_sleep=0,
+                    total_sleep_duration=0,
+                    rem_sleep_duration=0,
+                    time_in_bed=0,
+                    deep_sleep_duration=0
+                )
+                print("..." * 3, "Oura wasn't worn (or there is no data) on", calendarDay)
+                missingDays += 1
+            print("Inserting data into table")
+            connection.execute(inStatment)
+        connection.commit()
 
 
 
