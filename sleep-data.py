@@ -98,6 +98,7 @@ def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
                 combinedData["rem_sleep_duration"] = item["rem_sleep_duration"]
                 combinedData["time_in_bed"] = item["time_in_bed"]
                 combinedData["deep_sleep_duration"] = item["deep_sleep_duration"]
+                return combinedData
     
     return combinedData
 
