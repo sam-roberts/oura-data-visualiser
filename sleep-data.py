@@ -1,15 +1,16 @@
 # built-in libraries
+import configparser
+import pprint
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
-from typing import Optional, Dict, List
-import pprint
-import configparser
+from typing import Dict, List, Optional
+import logging
 
 # third-party libraries
 import psycopg2
 import requests
-import sqlalchemy
-
+from sqlalchemy import (Column, Date, Engine, Integer, MetaData, Table, select,
+                        create_engine)
 
 sleepTableFields = """
         date DATE PRIMARY KEY,
@@ -26,6 +27,8 @@ sleepTableFields = """
         time_in_bed INT,
         deep_sleep_duration INT
         """
+
+
 
 
 def getResponseFromAPI(API_URl: str, PERSONAL_TOKEN: str, myParams: Dict) -> Optional[Dict]:
@@ -239,6 +242,41 @@ def setupDb(connection, config: configparser.ConfigParser):
 
     print(f"...Applying Oura data to database (name={config['db']['dbname']}, table={config['db']['tablename']})")
 
+def clearAndCreateTable(engine: Engine, meta: MetaData, table: Table, config):
+    with engine.connect() as connection:
+        # Check if the table already exists
+        if connection.dialect.has_table(connection, config['db']['tablename']):
+            # Drop the table if it exists
+            table.drop(engine)
+            print(f"{config['db']['tablename']} table has been dropped.") 
+    table.create(engine)
+
+
+
+
+
+def populateDb2(engine: Engine, meta: MetaData, tableSleep:Table, config: configparser.ConfigParser, sleepData: Dict, moreSleepData: Dict, todayDate: str):
+    inStatment = tableSleep.insert().values(
+        date="2023-07-17",
+        score=69,
+        deep_sleep=79,
+        efficiency=100,
+        latency=100,
+        rem_sleep=100,
+        restfulness=100,
+        timing=100,
+        total_sleep=100,
+        total_sleep_duration=420420,
+        rem_sleep_duration=696969,
+        time_in_bed=1234567,
+        deep_sleep_duration=2928092
+    )
+    with engine.connect() as connection:
+        print("Inserting data into table")
+        connection.execute(inStatment)
+
+
+
 def main():
     # Setup configuration file
     config = configparser.ConfigParser()
@@ -264,24 +302,53 @@ def main():
     moreSleepData = getResponseFromAPI(config['oura']['sleep_routes_api_url'], config['user']['personal_token'], myParams)
     moreSleepData = moreSleepData.get("data")
 
+
+    engine = create_engine(f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}")
+    meta = MetaData()
+    table = Table(config['db']['tablename'], meta,
+                Column('date', Date, primary_key=True), 
+                Column('score', Integer), 
+                Column('deep_sleep', Integer),
+                Column('efficiency', Integer),
+                Column('latency', Integer),
+                Column('rem_sleep', Integer),
+                Column('restfulness', Integer),
+                Column('timing', Integer),
+                Column('total_sleep', Integer),
+                Column('total_sleep_duration', Integer),
+                Column('rem_sleep_duration', Integer),
+                Column('time_in_bed', Integer),
+                Column('deep_sleep_duration', Integer)
+    )
+
+    logging.basicConfig(level=logging.ERROR)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
+
+    clearAndCreateTable(engine, meta, table, config)
+    populateDb2(engine, meta, table, config, sleepData, moreSleepData, todayDate)
+
+
+
+
     # Connect to DB
-    connection = createDbConnection(config['db']['host'],
-                                    config['db']['dbname'],
-                                    config['db']['username'],
-                                    config['db']['password'])
-    if connection is None:
-        print("Unable to create a connection to database, exiting")
-        return
-    print(f"...Successfully connected to database: (host={config['db']['host']}, user={config['db']['username']})")
+    # connection = createDbConnection(config['db']['host'],
+    #                                config['db']['dbname'],
+    #                                config['db']['username'],
+    #                                config['db']['password'])
+    # if connection is None:
+    #    print("Unable to create a connection to database, exiting")
+    #    return
+    # print(f"...Successfully connected to database: (host={config['db']['host']}, user={config['db']['username']})")
 
     # Clear the table
-    setupDb(connection, config)
+    #setupDb(connection, config)
 
     # Put API data to DB
-    populateDbSleep(sleepData, moreSleepData, connection, todayDate, config)
+    # populateDbSleep(sleepData, moreSleepData, connection, todayDate, config)
 
     # Close the connection and wrap up
-    connection.close()
+    # connection.close()
 
 
 if __name__ == "__main__":
