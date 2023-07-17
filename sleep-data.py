@@ -116,10 +116,7 @@ def populateDb(
         print("First day:", firstDate, "last day", lastDate)
         print("There should be ", len(allDays), "of data")
 
-    print("......Filling any missing days of data")
-
     # Loop over all the days, and if there's no data for that day, just fill it with zeroes
-    successCount = 0
     missingDays = 0
     with engine.connect() as connection:
         for calendarDay in allDays:
@@ -178,7 +175,6 @@ def getTable(config, meta):
         Column("time_in_bed", Integer),
         Column("deep_sleep_duration", Integer),
     )
-
 
 
 def getSleepData(config, myParams):
