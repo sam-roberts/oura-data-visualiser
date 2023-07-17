@@ -9,33 +9,25 @@ import logging
 # third-party libraries
 import psycopg2
 import requests
-from sqlalchemy import (Column, Date, Engine, Integer, MetaData, Table, select,
-                        create_engine)
-
-sleepTableFields = """
-        date DATE PRIMARY KEY,
-        score INT,
-        deep_sleep INT,
-        efficiency INT,
-        latency INT,
-        rem_sleep INT,
-        restfulness INT,
-        timing INT,
-        total_sleep INT,
-        total_sleep_duration INT,
-        rem_sleep_duration INT,
-        time_in_bed INT,
-        deep_sleep_duration INT
-        """
+from sqlalchemy import (
+    Column,
+    Date,
+    Engine,
+    Integer,
+    MetaData,
+    Table,
+    select,
+    create_engine,
+)
 
 
-
-
-def getResponseFromAPI(API_URl: str, PERSONAL_TOKEN: str, myParams: Dict) -> Optional[Dict]:
+def getResponseFromAPI(
+    API_URl: str, PERSONAL_TOKEN: str, myParams: Dict
+) -> Optional[Dict]:
     # Optional: Define headers or authentication tokens if required by the API
     headers = {
         "Authorization": f"Bearer {PERSONAL_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     try:
@@ -55,21 +47,6 @@ def getResponseFromAPI(API_URl: str, PERSONAL_TOKEN: str, myParams: Dict) -> Opt
         return None
 
 
-def createDbConnection(dbhost, dbname, dbusername, dbpassword) -> Optional[psycopg2.extensions.connection]:
-    try:
-        # Connect to the PostgreSQL server
-        connection = psycopg2.connect(
-            host=dbhost,
-            database=dbname,
-            user=dbusername,
-            password=dbpassword
-        )
-        return connection
-    except (Exception, psycopg2.Error) as error:
-        print("Error while connecting to PostgreSQL:", error)
-    return None
-
-
 def checkConfig(config) -> bool:
     # Check if valid configuration file
     # TODO
@@ -81,6 +58,7 @@ def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
     results = [item for item in sleepData if item["day"] == str(compareDate)]
     return results
 
+
 def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
     # pprint.pprint(additionalDayData)
     combinedData = {
@@ -91,7 +69,7 @@ def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
     }
 
     for item in additionalDayData:
-        if config['user'].getboolean('include_naps'):
+        if config["user"].getboolean("include_naps"):
             combinedData["total_sleep_duration"] += item["total_sleep_duration"]
             combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
             combinedData["time_in_bed"] += item["time_in_bed"]
@@ -103,130 +81,38 @@ def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
                 combinedData["time_in_bed"] = item["time_in_bed"]
                 combinedData["deep_sleep_duration"] = item["deep_sleep_duration"]
                 return combinedData
-    
+
     return combinedData
-
-
-def populateDbSleep(sleepData, moreSleepData, connection, toDate, config: configparser.ConfigParser) -> None:
-    # Create a cursor object to interact with the database
-    cursor = connection.cursor()
-
-    if config['dev'].getboolean('debug_mode') is True:
-        # Get column headings
-        cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (config['db']['tablename'],))
-        columnHeadings = cursor.fetchall()
-        print(f"Columns in {config['db']['tablename']}:")
-        pprint.pprint(columnHeadings)
-        # Print the database names
-        for heading in columnHeadings:
-            print(heading[0], end=", ")
-        print(f"{len(columnHeadings)} columns total")
-
-    # Find the range of dates to loop over
-    dateFormat = "%Y-%m-%d"
-    firstDate = datetime.strptime(config['user']['start_date'], dateFormat).date()
-    lastDate = datetime.strptime(toDate, dateFormat).date()
-    dateDelta = (lastDate - firstDate).days
-
-    # List of all the days between the range
-    allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
-    if config['dev'].getboolean('debug_mode'):
-        print("First day:", firstDate, "last day", lastDate)
-        print("There should be ", len(allDays), "of data")
-
-    print("......Filling any missing days of data")
-
-    # Loop over all the days, and if there's no data for that day, just fill it with zeroes
-    successCount = 0
-    missingDays = 0
-    for calendarDay in allDays:
-        # Grab the data from our API response for that particular day
-        dayData = getSleepDataOnDate(sleepData, calendarDay)
-        additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
-
-        # Days can have multiple sleep sessions (e.g. naps), so we need to deal with those
-        if len(additionalDayData) > 1 and config['dev'].getboolean('debug_mode'):
-            print(calendarDay, "had", len(additionalDayData), "sleep sessions")
-        aggregateDayData = getSleepDataSum(additionalDayData, config)
-
-        # assume no value
-        values = (calendarDay.isoformat(), "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0")
-
-        # if we do have data then get correct values
-        # We can assume the first elmenet of DayData because length should only be 1
-        if len(dayData) > 0 and additionalDayData is not None:
-            values = (
-                str(dayData[0].get("day")),
-                dayData[0]["score"],
-                dayData[0]["contributors"]["deep_sleep"],
-                dayData[0]["contributors"]["efficiency"],
-                dayData[0]["contributors"]["latency"],
-                dayData[0]["contributors"]["rem_sleep"],
-                dayData[0]["contributors"]["restfulness"],
-                dayData[0]["contributors"]["timing"],
-                dayData[0]["contributors"]["total_sleep"],
-                aggregateDayData["total_sleep_duration"],
-                aggregateDayData["rem_sleep_duration"],
-                aggregateDayData["time_in_bed"],
-                aggregateDayData["deep_sleep_duration"]
-            )
-        else:
-            print("..." * 3, "Oura wasn't worn (or there is no data) on", calendarDay)
-            missingDays += 1
-
-        # Loop over the values and construct the INSERT statement
-        query = f"INSERT INTO {config['db']['tablename']} VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
-
-        try:
-            cursor.execute(query, (values))
-            successCount += 1
-        except psycopg2.Error as e:
-            print(f"Error executing query: {e}")
-
-    connection.commit()
-    cursor.close()
-    print(f"...Successfully added (or ignored existing) {successCount} rows to database. ({missingDays}) day(s) of data was missing")
 
 
 def clearAndCreateTable(engine: Engine, meta: MetaData, table: Table, config):
     with engine.connect() as connection:
         # Check if the table already exists
-        if connection.dialect.has_table(connection, config['db']['tablename']):
+        if connection.dialect.has_table(connection, config["db"]["tablename"]):
             # Drop the table if it exists
             table.drop(engine)
-            print(f"{config['db']['tablename']} table has been dropped.") 
+            print(f"{config['db']['tablename']} table has been dropped.")
     table.create(engine)
 
 
-
-
-
-def populateDb2(engine: Engine, meta: MetaData, tableSleep:Table, config: configparser.ConfigParser, sleepData: Dict, moreSleepData: Dict, todayDate: str):
-    inStatment = tableSleep.insert().values(
-        date="2023-07-17",
-        score=69,
-        deep_sleep=79,
-        efficiency=100,
-        latency=100,
-        rem_sleep=100,
-        restfulness=100,
-        timing=100,
-        total_sleep=100,
-        total_sleep_duration=420420,
-        rem_sleep_duration=696969,
-        time_in_bed=1234567,
-        deep_sleep_duration=2928092
-    )
-
+def populateDb(
+    engine: Engine,
+    meta: MetaData,
+    tableSleep: Table,
+    config: configparser.ConfigParser,
+    sleepData: Dict,
+    moreSleepData: Dict,
+    todayDate: str,
+):
     # Find the range of dates to loop over
     dateFormat = "%Y-%m-%d"
-    firstDate = datetime.strptime(config['user']['start_date'], dateFormat).date()
+    firstDate = datetime.strptime(config["user"]["start_date"], dateFormat).date()
     lastDate = datetime.strptime(todayDate, dateFormat).date()
     dateDelta = (lastDate - firstDate).days
 
     # List of all the days between the range
     allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
-    if config['dev'].getboolean('debug_mode'):
+    if config["dev"].getboolean("debug_mode"):
         print("First day:", firstDate, "last day", lastDate)
         print("There should be ", len(allDays), "of data")
 
@@ -242,12 +128,9 @@ def populateDb2(engine: Engine, meta: MetaData, tableSleep:Table, config: config
             additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
 
             # Days can have multiple sleep sessions (e.g. naps), so we need to deal with those
-            if len(additionalDayData) > 1 and config['dev'].getboolean('debug_mode'):
+            if len(additionalDayData) > 1 and config["dev"].getboolean("debug_mode"):
                 print(calendarDay, "had", len(additionalDayData), "sleep sessions")
             aggregateDayData = getSleepDataSum(additionalDayData, config)
-
-            # assume no value
-            values = (calendarDay.isoformat(), "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0")
 
             # if we do have data then get correct values
             # We can assume the first elmenet of DayData because length should only be 1
@@ -265,37 +148,42 @@ def populateDb2(engine: Engine, meta: MetaData, tableSleep:Table, config: config
                     total_sleep_duration=aggregateDayData["total_sleep_duration"],
                     rem_sleep_duration=aggregateDayData["rem_sleep_duration"],
                     time_in_bed=aggregateDayData["time_in_bed"],
-                    deep_sleep_duration=aggregateDayData["deep_sleep_duration"]
+                    deep_sleep_duration=aggregateDayData["deep_sleep_duration"],
                 )
             else:
-                # Loop over the values and construct the INSERT statement
-                inStatment = tableSleep.insert().values(
-                    date=calendarDay.isoformat(),
-                    score=0,
-                    deep_sleep=0,
-                    efficiency=0,
-                    latency=0,
-                    rem_sleep=0,
-                    restfulness=0,
-                    timing=0,
-                    total_sleep=0,
-                    total_sleep_duration=0,
-                    rem_sleep_duration=0,
-                    time_in_bed=0,
-                    deep_sleep_duration=0
+                inStatment = tableSleep.insert().values(date=calendarDay.isoformat())
+                print(
+                    "..." * 3, "Oura wasn't worn (or there is no data) on", calendarDay
                 )
-                print("..." * 3, "Oura wasn't worn (or there is no data) on", calendarDay)
                 missingDays += 1
-            print("Inserting data into table")
             connection.execute(inStatment)
         connection.commit()
 
 
+def getTable(config, meta):
+    return Table(
+        config["db"]["tablename"],
+        meta,
+        Column("date", Date, primary_key=True),
+        Column("score", Integer),
+        Column("deep_sleep", Integer),
+        Column("efficiency", Integer),
+        Column("latency", Integer),
+        Column("rem_sleep", Integer),
+        Column("restfulness", Integer),
+        Column("timing", Integer),
+        Column("total_sleep", Integer),
+        Column("total_sleep_duration", Integer),
+        Column("rem_sleep_duration", Integer),
+        Column("time_in_bed", Integer),
+        Column("deep_sleep_duration", Integer),
+    )
+
 
 def main():
     # Setup configuration file
-    config = configparser.ConfigParser()
-    config.read('config.ini')
+    config = configparser.ConfigParser().read("config.ini")
+
     if not checkConfig(config):
         print("Configuration file is invalid, check file and try again. Exiting")
         return
@@ -304,66 +192,48 @@ def main():
     todayDate = date.today().strftime("%Y-%m-%d")
 
     # Define start and end date we want data for
-    myParams = {
-        "start_date": config['user']['start_date'],
-        "end_date": todayDate
-    }
+    myParams = {"start_date": config["user"]["start_date"], "end_date": todayDate}
 
     # Get results from sleep api (e.g. overall score)
-    sleepData = getResponseFromAPI(config['oura']['sleep_api_url'], config['user']['personal_token'], myParams)
-    sleepData = sleepData.get("data")
+    sleepData = getSleepData(config, myParams)
 
     # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
-    moreSleepData = getResponseFromAPI(config['oura']['sleep_routes_api_url'], config['user']['personal_token'], myParams)
-    moreSleepData = moreSleepData.get("data")
+    moreSleepData = getMoreSleepData(config, myParams)
 
-
-    engine = create_engine(f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}")
-    meta = MetaData()
-    table = Table(config['db']['tablename'], meta,
-                Column('date', Date, primary_key=True), 
-                Column('score', Integer), 
-                Column('deep_sleep', Integer),
-                Column('efficiency', Integer),
-                Column('latency', Integer),
-                Column('rem_sleep', Integer),
-                Column('restfulness', Integer),
-                Column('timing', Integer),
-                Column('total_sleep', Integer),
-                Column('total_sleep_duration', Integer),
-                Column('rem_sleep_duration', Integer),
-                Column('time_in_bed', Integer),
-                Column('deep_sleep_duration', Integer)
+    engine = create_engine(
+        f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}"
     )
+    meta = MetaData()
+    table = getTable(config, meta)
 
+    setupLogging()
+
+    clearAndCreateTable(engine, meta, table, config)
+    populateDb(engine, meta, table, config, sleepData, moreSleepData, todayDate)
+
+
+def getSleepData(config, myParams):
+    sleepData = getResponseFromAPI(
+        config["oura"]["sleep_api_url"], config["user"]["personal_token"], myParams
+    )
+    sleepData = sleepData.get("data")
+    return sleepData
+
+
+def getMoreSleepData(config, myParams):
+    moreSleepData = getResponseFromAPI(
+        config["oura"]["sleep_routes_api_url"],
+        config["user"]["personal_token"],
+        myParams,
+    )
+    moreSleepData = moreSleepData.get("data")
+    return moreSleepData
+
+
+def setupLogging():
     logging.basicConfig(level=logging.ERROR)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
-
-    clearAndCreateTable(engine, meta, table, config)
-    populateDb2(engine, meta, table, config, sleepData, moreSleepData, todayDate)
-
-
-
-
-    # Connect to DB
-    # connection = createDbConnection(config['db']['host'],
-    #                                config['db']['dbname'],
-    #                                config['db']['username'],
-    #                                config['db']['password'])
-    # if connection is None:
-    #    print("Unable to create a connection to database, exiting")
-    #    return
-    # print(f"...Successfully connected to database: (host={config['db']['host']}, user={config['db']['username']})")
-
-    # Clear the table
-    #setupDb(connection, config)
-
-    # Put API data to DB
-    # populateDbSleep(sleepData, moreSleepData, connection, todayDate, config)
-
-    # Close the connection and wrap up
-    # connection.close()
 
 
 if __name__ == "__main__":
