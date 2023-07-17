@@ -20,6 +20,11 @@ from sqlalchemy import (
     create_engine,
 )
 
+import os
+import configparser
+
+
+
 
 def getResponseFromAPI(
     API_URl: str, PERSONAL_TOKEN: str, myParams: Dict
@@ -203,11 +208,13 @@ def setupLogging():
 
 def main():
     # Setup configuration file
+    config_path = os.environ['CONFIG_PATH']
     config = configparser.ConfigParser()
-    config.read("config.ini")
+    config.read(config_path)
     if not checkConfig(config):
         print("Configuration file is invalid, check file and try again. Exiting")
         return
+
 
     # Fetch data
     todayDate = date.today().strftime("%Y-%m-%d")
