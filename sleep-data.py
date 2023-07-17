@@ -180,37 +180,6 @@ def getTable(config, meta):
     )
 
 
-def main():
-    # Setup configuration file
-    config = configparser.ConfigParser()
-    config.read("config.ini")
-    if not checkConfig(config):
-        print("Configuration file is invalid, check file and try again. Exiting")
-        return
-
-    # Fetch data
-    todayDate = date.today().strftime("%Y-%m-%d")
-
-    # Define start and end date we want data for
-    myParams = {"start_date": config["user"]["start_date"], "end_date": todayDate}
-
-    # Get results from sleep api (e.g. overall score)
-    sleepData = getSleepData(config, myParams)
-
-    # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
-    moreSleepData = getMoreSleepData(config, myParams)
-
-    engine = create_engine(
-        f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}"
-    )
-    meta = MetaData()
-    table = getTable(config, meta)
-
-    setupLogging()
-
-    clearAndCreateTable(engine, meta, table, config)
-    populateDb(engine, meta, table, config, sleepData, moreSleepData, todayDate)
-
 
 def getSleepData(config, myParams):
     sleepData = getResponseFromAPI(
@@ -234,6 +203,41 @@ def setupLogging():
     logging.basicConfig(level=logging.ERROR)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
+
+
+def main():
+    # Setup configuration file
+    config = configparser.ConfigParser()
+    config.read("config.ini")
+    if not checkConfig(config):
+        print("Configuration file is invalid, check file and try again. Exiting")
+        return
+
+    # Fetch data
+    todayDate = date.today().strftime("%Y-%m-%d")
+
+    # Define start and end date we want data for
+    myParams = {"start_date": config["user"]["start_date"], "end_date": todayDate}
+
+    # Get results from sleep api (e.g. overall score)
+    sleepData = getSleepData(config, myParams)
+
+    # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
+    moreSleepData = getMoreSleepData(config, myParams)
+
+    # Connect to database
+    engine = create_engine(
+        f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}"
+    )
+    meta = MetaData()
+    setupLogging()
+
+    # Create table object for sleep data
+    table = getTable(config, meta)
+
+    # Create the table in the database
+    clearAndCreateTable(engine, meta, table, config)
+    populateDb(engine, meta, table, config, sleepData, moreSleepData, todayDate)
 
 
 if __name__ == "__main__":
