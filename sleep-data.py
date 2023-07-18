@@ -1,29 +1,14 @@
 # built-in libraries
 import configparser
-import pprint
+import logging
+import os
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from typing import Dict, List, Optional
-import logging
 
 # third-party libraries
-import psycopg2
 import requests
-from sqlalchemy import (
-    Column,
-    Date,
-    Engine,
-    Integer,
-    MetaData,
-    Table,
-    select,
-    create_engine,
-)
-
-import os
-import configparser
-
-
+from sqlalchemy import Column, Date, Engine, Integer, MetaData, Table, create_engine
 
 
 def getResponseFromAPI(
@@ -54,7 +39,7 @@ def getResponseFromAPI(
 
 def checkConfig(config) -> bool:
     # Check if valid configuration file
-    # TODO
+    # TODO MAKE SURE THE USER PROVIDES A VALID CONFIG FILE
     return True
 
 
@@ -65,7 +50,6 @@ def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
 
 
 def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
-    # pprint.pprint(additionalDayData)
     combinedData = {
         "total_sleep_duration": 0,
         "rem_sleep_duration": 0,
@@ -74,6 +58,7 @@ def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
     }
 
     for item in additionalDayData:
+        # If in config we include naps then add all sleep sessions for the day up, otherwise only take the long sleep value
         if config["user"].getboolean("include_naps"):
             combinedData["total_sleep_duration"] += item["total_sleep_duration"]
             combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
@@ -208,13 +193,12 @@ def setupLogging():
 
 def main():
     # Setup configuration file
-    config_path = os.environ['CONFIG_PATH']
+    config_path = os.environ["OURA_SLEEP_CONFIG_PATH"]
     config = configparser.ConfigParser()
     config.read(config_path)
     if not checkConfig(config):
         print("Configuration file is invalid, check file and try again. Exiting")
         return
-
 
     # Fetch data
     todayDate = date.today().strftime("%Y-%m-%d")
