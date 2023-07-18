@@ -1,73 +1,33 @@
-import requests
-from datetime import date, timedelta,datetime
-import psycopg2
-import json
+# built-in libraries
+import configparser
+import logging
 import os
+from datetime import date, datetime, timedelta
+from http import HTTPStatus
+from typing import Dict, List, Optional
 
-debug_mode = False
-github_mode = True
-
-
-sleepTableFields= """
-        date DATE PRIMARY KEY,
-        score INT,
-        deep_sleep INT,
-        efficiency INT,
-        latency INT,
-        rem_sleep INT,
-        restfulness INT,
-        timing INT,
-        total_sleep INT
-        """
-
-def loadConfig():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    relative_path = "sleep-data-config.json"
-    if github_mode is False:
-        relative_path='sleep-data-config-private.json'
-    config_path = os.path.join(script_dir, relative_path)
-
-    with open(config_path) as config_file:
-        config = json.load(config_file)
-    return config
+# third-party libraries
+import requests
+from sqlalchemy import Column, Date, Engine, Integer, MetaData, Table, create_engine
 
 
-def generateConfigVariables(configJson):
-    return {
-        "DBHOST": configJson.get("db-host"),
-        "DBNAME": configJson.get("db-dbname"),
-        "DBUSERNAME":configJson.get("db-username"),
-        "DBPASSWORD":configJson.get("db-password"),
-        "DBTABLENAME":configJson.get("db-tablename"),
-        #Oura configuration
-        "OURA_PERSONAL_TOKEN":configJson.get("oura-token"),
-        "OURA_SLEEP_API_URL":"https://api.ouraring.com/v2/usercollection/daily_sleep",
-        "OURA_FROM_DATE":configJson.get("oura-from-date")
-    }
-
-
-def getSleepDataFromOura(API_URl, PERSONAL_TOKEN, fromDate,toDate):
+def getResponseFromAPI(
+    API_URl: str, PERSONAL_TOKEN: str, myParams: Dict
+) -> Optional[Dict]:
     # Optional: Define headers or authentication tokens if required by the API
     headers = {
         "Authorization": f"Bearer {PERSONAL_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    params = {
-        "start_date": fromDate,
-        "end_date": toDate
+        "Content-Type": "application/json",
     }
 
     try:
-        response = requests.get(API_URl, headers=headers, params=params)  # Make a GET request, replace with the appropriate HTTP method
+        response = requests.get(API_URl, headers=headers, params=myParams)
 
         # Check the response status code
-        if response.status_code == 200:  # Replace 200 with the expected status code for a successful response
+        if response.status_code == HTTPStatus.OK:
             data = response.json()  # Get the response data in JSON format
             # Process and work with the response data as needed
-
-            sleepData = data["data"]
-            print ("...Gathered",len(data["data"]), "nights of sleep data from Oura API")
-            return sleepData
+            return data
         else:
             print(f"Request failed with status code: {response.status_code}")
             return None
@@ -77,158 +37,195 @@ def getSleepDataFromOura(API_URl, PERSONAL_TOKEN, fromDate,toDate):
         return None
 
 
-def createDbConnection(dbhost, dbname, dbusername, dbpassword):
-    try:
-        # Connect to the PostgreSQL server
-        connection = psycopg2.connect(
-            host=dbhost,
-            database=dbname,
-            user=dbusername,
-            password=dbpassword
-        )
-        return connection
-    except (Exception, psycopg2.Error) as error:
-        print("Error while connecting to PostgreSQL:", error)
-    return None
-
-def checkConfig(config):
-    # Check if any value is null or empty
-    if any(value is None or value == "" for value in config.values()):
-        return False
+def checkConfig(config) -> bool:
+    # Check if valid configuration file
+    # TODO MAKE SURE THE USER PROVIDES A VALID CONFIG FILE
     return True
 
 
-def getSleepDataOnDate(sleepData, compareDate):
-    for day in sleepData:
-        if str(day["day"]) == str(compareDate):
-            return day
-    return None
+def getSleepDataOnDate(sleepData, compareDate) -> List[Dict]:
+    # support multiple sets of data on a day
+    results = [item for item in sleepData if item["day"] == str(compareDate)]
+    return results
 
-def populateDbSleep(sleepData, connection, dbtable, fromDate,toDate):
-        # Create a cursor object to interact with the database
-    cursor = connection.cursor()
 
-    if debug_mode is True:
-        # Get column headings
-        cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (dbtable,))
-        columnHeadings = cursor.fetchall()
-        print(f"Columns in {dbtable}:")
-        # Print the database names
-        for heading in columnHeadings:
-            print(heading[0], end=", ")
-        print(f"{len(columnHeadings)} columns total")
+def getSleepDataSum(additionalDayData, config: configparser.ConfigParser):
+    combinedData = {
+        "total_sleep_duration": 0,
+        "rem_sleep_duration": 0,
+        "time_in_bed": 0,
+        "deep_sleep_duration": 0,
+    }
 
+    for item in additionalDayData:
+        # If in config we include naps then add all sleep sessions for the day up, otherwise only take the long sleep value
+        if config["user"].getboolean("include_naps"):
+            combinedData["total_sleep_duration"] += item["total_sleep_duration"]
+            combinedData["rem_sleep_duration"] += item["rem_sleep_duration"]
+            combinedData["time_in_bed"] += item["time_in_bed"]
+            combinedData["deep_sleep_duration"] += item["deep_sleep_duration"]
+        else:
+            if item["type"] == "long_sleep":
+                combinedData["total_sleep_duration"] = item["total_sleep_duration"]
+                combinedData["rem_sleep_duration"] = item["rem_sleep_duration"]
+                combinedData["time_in_bed"] = item["time_in_bed"]
+                combinedData["deep_sleep_duration"] = item["deep_sleep_duration"]
+                return combinedData
+
+    return combinedData
+
+
+def clearAndCreateTable(engine: Engine, meta: MetaData, table: Table, config):
+    with engine.connect() as connection:
+        # Check if the table already exists
+        if connection.dialect.has_table(connection, config["db"]["tablename"]):
+            # Drop the table if it exists
+            table.drop(engine)
+            print(f"{config['db']['tablename']} table has been dropped.")
+    table.create(engine)
+
+
+def populateDb(
+    engine: Engine,
+    meta: MetaData,
+    tableSleep: Table,
+    config: configparser.ConfigParser,
+    sleepData: Dict,
+    moreSleepData: Dict,
+    todayDate: str,
+):
+    # Find the range of dates to loop over
     dateFormat = "%Y-%m-%d"
-    firstDate = datetime.strptime(fromDate,dateFormat).date()
-    lastDate = datetime.strptime(toDate,dateFormat).date()
+    firstDate = datetime.strptime(config["user"]["start_date"], dateFormat).date()
+    lastDate = datetime.strptime(todayDate, dateFormat).date()
     dateDelta = (lastDate - firstDate).days
 
+    # List of all the days between the range
     allDays = [firstDate + timedelta(days=i) for i in range(dateDelta + 1)]
-    if debug_mode is True:
-        print("first day:", firstDate, "last day",lastDate)
-        print("There should be ",len(allDays),"of data")
+    if config["dev"].getboolean("debug_mode"):
+        print("First day:", firstDate, "last day", lastDate)
+        print("There should be ", len(allDays), "of data")
 
-    print("......Filling any missing days of data")
+    # Loop over all the days, and if there's no data for that day, just fill it with zeroes
+    missingDays = 0
+    with engine.connect() as connection:
+        for calendarDay in allDays:
+            # Grab the data from our API response for that particular day
+            dayData = getSleepDataOnDate(sleepData, calendarDay)
+            additionalDayData = getSleepDataOnDate(moreSleepData, calendarDay)
 
-    successCount=0
-    missingDays=0
-    for calendarDay in allDays:
-        dayData = getSleepDataOnDate(sleepData,calendarDay)
-       
-        #assume no value
-        values = (calendarDay,0,0,0,0,0,0,0,0)
-        
-        #if we do have data then get correct values
-        if dayData is not None:
-            values = (
-                dayData["day"], 
-                dayData["score"], 
-                dayData["contributors"]["deep_sleep"], 
-                dayData["contributors"]["efficiency"],
-                dayData["contributors"]["latency"], 
-                dayData["contributors"]["rem_sleep"], 
-                dayData["contributors"]["restfulness"], 
-                dayData["contributors"]["timing"], 
-                dayData["contributors"]["total_sleep"]
-            )
-        else:
-            print("..."*3,"Oura wasn't worn (or there is no data) on",calendarDay)
-            missingDays += 1
+            # Days can have multiple sleep sessions (e.g. naps), so we need to deal with those
+            if len(additionalDayData) > 1 and config["dev"].getboolean("debug_mode"):
+                print(calendarDay, "had", len(additionalDayData), "sleep sessions")
+            aggregateDayData = getSleepDataSum(additionalDayData, config)
 
-        # Loop over the values and construct the INSERT statement
-        query = f"INSERT INTO {dbtable} VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
-        
-        try:
-            cursor.execute(query,(values))
-            successCount +=1
-        except psycopg2.Error as e:
-            print(f"Error executing query: {e}")
-    
-    connection.commit()
-    cursor.close()
-    print(f"...Successfully added (or ignored existing) {successCount} rows to database. ({missingDays}) day(s) of data was missing")
-
-def checkTableExists(connection, dbtable):
-    cursor = connection.cursor()
-    query = """
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_tables
-            WHERE tablename = %s
-        );
-    """
-    cursor.execute(query, (dbtable,))
-    result = cursor.fetchone()[0]    
-    cursor.close()
-    return result
-
-def createDbTable(connection, dbtable, dbfields):
-    cursor = connection.cursor()
-    create_table_query = f"""
-    CREATE TABLE {dbtable} (
-        {dbfields}
-    );
-    """
-    try:
-        cursor.execute(create_table_query)
+            # if we do have data then get correct values
+            # We can assume the first elmenet of DayData because length should only be 1
+            if len(dayData) > 0 and additionalDayData is not None:
+                inStatment = tableSleep.insert().values(
+                    date=dayData[0].get("day"),
+                    score=dayData[0]["score"],
+                    deep_sleep=dayData[0]["contributors"]["deep_sleep"],
+                    efficiency=dayData[0]["contributors"]["efficiency"],
+                    latency=dayData[0]["contributors"]["latency"],
+                    rem_sleep=dayData[0]["contributors"]["rem_sleep"],
+                    restfulness=dayData[0]["contributors"]["restfulness"],
+                    timing=dayData[0]["contributors"]["timing"],
+                    total_sleep=dayData[0]["contributors"]["total_sleep"],
+                    total_sleep_duration=aggregateDayData["total_sleep_duration"],
+                    rem_sleep_duration=aggregateDayData["rem_sleep_duration"],
+                    time_in_bed=aggregateDayData["time_in_bed"],
+                    deep_sleep_duration=aggregateDayData["deep_sleep_duration"],
+                )
+            else:
+                inStatment = tableSleep.insert().values(date=calendarDay.isoformat())
+                print(
+                    "..." * 3, "Oura wasn't worn (or there is no data) on", calendarDay
+                )
+                missingDays += 1
+            connection.execute(inStatment)
         connection.commit()
-        cursor.close()
-        return True
-    except psycopg2.Error as e:
-        print(f"Error executing query: {e}")
-        cursor.close()
-        return False
+
+
+def getTable(config, meta):
+    return Table(
+        config["db"]["tablename"],
+        meta,
+        Column("date", Date, primary_key=True),
+        Column("score", Integer),
+        Column("deep_sleep", Integer),
+        Column("efficiency", Integer),
+        Column("latency", Integer),
+        Column("rem_sleep", Integer),
+        Column("restfulness", Integer),
+        Column("timing", Integer),
+        Column("total_sleep", Integer),
+        Column("total_sleep_duration", Integer),
+        Column("rem_sleep_duration", Integer),
+        Column("time_in_bed", Integer),
+        Column("deep_sleep_duration", Integer),
+    )
+
+
+def getSleepData(config, myParams):
+    sleepData = getResponseFromAPI(
+        config["oura"]["sleep_api_url"], config["user"]["personal_token"], myParams
+    )
+    sleepData = sleepData.get("data")
+    return sleepData
+
+
+def getMoreSleepData(config, myParams):
+    moreSleepData = getResponseFromAPI(
+        config["oura"]["sleep_routes_api_url"],
+        config["user"]["personal_token"],
+        myParams,
+    )
+    moreSleepData = moreSleepData.get("data")
+    return moreSleepData
+
+
+def setupLogging():
+    logging.basicConfig(level=logging.ERROR)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
+
 
 def main():
-    configJson = loadConfig()
-    if not checkConfig(configJson):
-        print("Configuration file is missing a value, check file and try again. Exiting")
+    # Setup configuration file
+    config_path = os.environ["OURA_SLEEP_CONFIG_PATH"]
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if not checkConfig(config):
+        print("Configuration file is invalid, check file and try again. Exiting")
         return
-    config = generateConfigVariables(configJson)
-    print("...Loaded config successfully")
 
+    # Fetch data
     todayDate = date.today().strftime("%Y-%m-%d")
-    sleepData = getSleepDataFromOura(config['OURA_SLEEP_API_URL'], config['OURA_PERSONAL_TOKEN'], config['OURA_FROM_DATE'],todayDate)
 
-    connection = createDbConnection(config['DBHOST'], config['DBNAME'],config['DBUSERNAME'],config['DBPASSWORD'])
-    if connection is None:
-        print("Unable to create a connection to database, exiting")
-        return
-    print(f"...Successfully connected to database: (host={config['DBHOST']}, user={config['DBUSERNAME']})")
+    # Define start and end date we want data for
+    myParams = {"start_date": config["user"]["start_date"], "end_date": todayDate}
 
-    hasTable = checkTableExists(connection, config['DBTABLENAME'])
-    if hasTable is False:
-        print("...Table",config['DBTABLENAME'],"doesn't exist. Attempting to create...")
-        isCreateSuccessful = createDbTable(connection, config['DBTABLENAME'],sleepTableFields)
-        if isCreateSuccessful is False:
-            print("Unable to create table",config['DBTABLENAME'],". Exiting")
-            return
-    print(f"...Applying Oura data to database (name={config['DBNAME']}, table={config['DBTABLENAME']})")
-    populateDbSleep(sleepData, connection, config['DBTABLENAME'], config['OURA_FROM_DATE'], todayDate)
-    connection.close()
+    # Get results from sleep api (e.g. overall score)
+    sleepData = getSleepData(config, myParams)
 
-    
+    # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
+    moreSleepData = getMoreSleepData(config, myParams)
+
+    # Connect to database
+    engine = create_engine(
+        f"{config['db']['dbtype']}://{config['db']['username']}:{config['db']['password']}@{config['db']['host']}/{config['db']['dbname']}"
+    )
+    meta = MetaData()
+    setupLogging()
+
+    # Create table object for sleep data
+    table = getTable(config, meta)
+
+    # Create the table in the database
+    clearAndCreateTable(engine, meta, table, config)
+    populateDb(engine, meta, table, config, sleepData, moreSleepData, todayDate)
+
+
 if __name__ == "__main__":
     main()
-
-

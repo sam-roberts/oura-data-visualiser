@@ -1,8 +1,15 @@
-# Oura data visualiser
+# Oura sleep data visualiser
 
-This is a Python project that allows you to pull your data from the Oura API using a personal access token, save it to a local PostgreSQL database, then use tools like Grafana to revisualise it.
-![Example of visualising your sleep data with this tool](https://i.imgur.com/743EON0.jpeg)
+This is a Python project that allows you to pull your data from the Oura API using a personal access token, save it to a local PostgreSQL database, then use tools like Grafana to revisualise it. Currently the data being scraped is:
 
+- Sleep score including score breakdown (e.g. efficiency, latency, etc)
+- Sleep durations for:
+  - Total time in bed duration
+  - Total sleep duration
+  - REM sleep duration
+  - Deep sleep duration
+
+![Example of visualising your sleep data with this tool](/app-preview.jpg)
 
 ## Limitations and warnings
 
@@ -15,7 +22,8 @@ This tool was created for PERSONAL USE and such is not intended as a production-
 - Python 3.x: The project requires Python 3.x to be installed. If Python is not installed, you can download it from the official Python website: <https://www.python.org/downloads/>
 - PostGreSQL: The project attempts to connect to a Postgres database to store its data. <https://www.postgresql.org/download/>
 
-### Install Postgres (linux)
+### Install Postgres (linux) - Other database types now supported, but not tested
+
 Installing Postgres is recommended first.
 For proper documentation, follow instructions for your platform at: <https://www.postgresql.org/download/> (or consider using something like brew on macOS)
 or
@@ -44,10 +52,10 @@ General instructions:
     ```sql
     CREATE DATABASE sleepdb;
     ```
-    
+
 ### Set up a Virtual Environment (Optional)
 
-Setting up a virtual environment is recommended to keep the project dependencies isolated. Follow these steps to set up a virtual environment. Note on MacOS you may need to follow some of the steps described in https://stackoverflow.com/questions/34304833/failed-building-wheel-for-psycopg2-macosx-using-virtualenv-and-pip 
+Setting up a virtual environment is recommended to keep the project dependencies isolated. Follow these steps to set up a virtual environment. Note on MacOS you may need to follow some of the steps described in <https://stackoverflow.com/questions/34304833/failed-building-wheel-for-psycopg2-macosx-using-virtualenv-and-pip>
 
 1. Change to the project directory:
 
@@ -76,23 +84,20 @@ Setting up a virtual environment is recommended to keep the project dependencies
     pip install -r requirements.txt
     ```
 
-
-
 ### Configuration
 
-1. Open the `sleep-data-config.json` file in a text editor.
-2. Modify the configuration settings as required (e.g., database credentials, API keys).
+1. Open the `config-template.ini` file in a text editor.
+2. Fill out all configurations in the db and user sections
 3. Save the file.
-
-### Run the script to populate the database
+4. Set an environment variable to tell your operating system where to find this file. (Add to ~/.bashrc to not need to do this every time program is run)
 
 ```bash
-python3 sleep-data.py
+export OURA_SLEEP_CONFIG_PATH="e.g. PATH/TO/YOUR/CONFIG-FILE.ini"
 ```
 
 ### Set up
 
-The main python file will create a table for you in your specified database, and set up the fields for it automatically.
+As long as a database exists as defined in your config file, the program will create the necessary table for you.
 
 ```bash
 python3 sleep-data.py
@@ -125,6 +130,12 @@ SELECT score as "Sleep Score", date FROM sleep_sessions WHERE $__timeFilter(date
 python3 sleep-data.py
 ```
 
+## Major changes released 19/7/23
+
+1. Migrated from psycopg2 to sqlalchemy to allow for more generic db handling
+2. Added support for pulling in sleep durations
+3. Various code refactoring and readability improvements
+
 ## Setting up the script to run automatically
 
 You can use a tool like cron to run the script every day.
@@ -136,4 +147,5 @@ You can use a tool like cron to run the script every day.
 - Pull in more information from Oura. At the moment only sleep data is pulled.
 
 ## Known issues
-- checkConfig() fails if no password is set, which is a valid configuration on postgres. 
+
+- checkConfig() fails if no password is set, which is a valid configuration on postgres.
