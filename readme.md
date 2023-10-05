@@ -8,6 +8,9 @@ This is a Python project that allows you to pull your data from the Oura API usi
   - Total sleep duration
   - REM sleep duration
   - Deep sleep duration
+ 
+
+Although last change was made approx 3 months ago - script should be working as of this edit, October 2023. 
 
 ![Example of visualising your sleep data with this tool](/app-preview.jpg)
 
