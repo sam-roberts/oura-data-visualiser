@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: oura
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # for db management
+  # adminer:
+  #   image: adminer
+  #   restart: always
+  #   ports:
+  #     - 8080:8080
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-oura
+    environment:
+      - GF_SECURITY_ADMIN_USER=oura
+      - GF_SECURITY_ADMIN_PASSWORD=oura
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:

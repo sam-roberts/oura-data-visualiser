@@ -193,7 +193,7 @@ def setupLogging():
 
 def main():
     # Setup configuration file
-    config_path = os.environ["OURA_SLEEP_CONFIG_PATH"]
+    config_path = os.environ.get("OURA_SLEEP_CONFIG_PATH", "config.ini")
     config = configparser.ConfigParser()
     config.read(config_path)
     if not checkConfig(config):
@@ -201,16 +201,16 @@ def main():
         return
 
     # Fetch data
-    todayDate = date.today().strftime("%Y-%m-%d")
+    today_date = date.today().strftime("%Y-%m-%d")
 
     # Define start and end date we want data for
-    myParams = {"start_date": config["user"]["start_date"], "end_date": todayDate}
+    my_params = {"start_date": config["user"]["start_date"], "end_date": today_date}
 
     # Get results from sleep api (e.g. overall score)
-    sleepData = getSleepData(config, myParams)
+    sleep_data = getSleepData(config, my_params)
 
     # Get additional sleep data (e.g. rem time, deep time, in bed duration, etc)
-    moreSleepData = getMoreSleepData(config, myParams)
+    more_sleep_data = getMoreSleepData(config, my_params)
 
     # Connect to database
     engine = create_engine(
@@ -224,7 +224,7 @@ def main():
 
     # Create the table in the database
     clearAndCreateTable(engine, meta, table, config)
-    populateDb(engine, meta, table, config, sleepData, moreSleepData, todayDate)
+    populateDb(engine, meta, table, config, sleep_data, more_sleep_data, today_date)
 
 
 if __name__ == "__main__":
